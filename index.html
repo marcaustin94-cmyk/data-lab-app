@@ -1,0 +1,351 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import './styles.css';
+
+const today = new Date().toLocaleDateString('en-GB', {
+  weekday: 'long',
+  day: 'numeric',
+  month: 'short',
+});
+
+const initialLog = {
+  sleepHours: 7.8,
+  energy: 8,
+  mood: 7,
+  stress: 4,
+  meditationMinutes: 8,
+  mindfulResets: 2,
+  trainingDone: true,
+  morningLight: true,
+  windDown: false,
+  caffeineCutoff: true,
+  lastMealGap: true,
+  businessAction: false,
+  notes: '',
+};
+
+const progressAreas = [
+  { name: 'Training', base: 86, status: 'On track', next: 'Keep the key session, avoid extra junk volume.' },
+  { name: 'Sleep', base: 78, status: 'Improving', next: 'Protect bedtime twice this week.' },
+  { name: 'Business', base: 54, status: 'Needs rhythm', next: 'Post once and message one warm lead.' },
+  { name: 'Study', base: 61, status: 'Steady', next: 'Finish one focused project milestone.' },
+];
+
+const weeklyData = [
+  { day: 'Mon', progress: 62, load: 56, sleep: 7.8 },
+  { day: 'Tue', progress: 67, load: 74, sleep: 7.1 },
+  { day: 'Wed', progress: 69, load: 38, sleep: 8.2 },
+  { day: 'Thu', progress: 73, load: 69, sleep: 6.9 },
+  { day: 'Fri', progress: 78, load: 30, sleep: 8.4 },
+  { day: 'Sat', progress: 82, load: 91, sleep: 7.6 },
+  { day: 'Sun', progress: 86, load: 45, sleep: 8.0 },
+];
+
+const behaviourChecks = [
+  { key: 'trainingDone', label: 'Main training done', detail: 'Complete the key physical session.' },
+  { key: 'morningLight', label: 'Morning light', detail: 'Get daylight soon after waking.' },
+  { key: 'windDown', label: 'Wind-down routine', detail: 'Give yourself 30+ minutes before bed.' },
+  { key: 'caffeineCutoff', label: 'Caffeine cut-off', detail: 'Keep caffeine early enough to protect sleep.' },
+  { key: 'lastMealGap', label: 'Final meal gap', detail: 'Leave 2+ hours between food and bed.' },
+  { key: 'businessAction', label: 'Business action', detail: 'Move one external goal forward.' },
+];
+
+function clamp(value, min = 0, max = 100) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function calculateScore(log) {
+  const sleepScore = clamp((log.sleepHours / 8) * 100);
+  const energyScore = log.energy * 10;
+  const moodScore = log.mood * 10;
+  const stressScore = clamp(100 - log.stress * 10);
+  const habitScore = behaviourChecks.filter((item) => log[item.key]).length * (100 / behaviourChecks.length);
+  const meditationScore = clamp((log.meditationMinutes / 10) * 80 + log.mindfulResets * 8);
+  return Math.round((sleepScore + energyScore + moodScore + stressScore + habitScore + meditationScore) / 6);
+}
+
+function getDecision(score, log) {
+  if (score >= 82 && log.stress <= 5) {
+    return {
+      title: 'Good day to push',
+      detail: 'Recovery and mood are good enough to do the key session. Keep the quality, but do not chase extra work.',
+      tone: 'push',
+    };
+  }
+  if (score >= 65) {
+    return {
+      title: 'Productive but controlled',
+      detail: 'Do the important work, keep the intensity honest, and protect one recovery behaviour tonight.',
+      tone: 'steady',
+    };
+  }
+  return {
+    title: 'Absorb and reset',
+    detail: 'Reduce noise today. Keep the minimum effective training and prioritise sleep, light, food timing and calm.',
+    tone: 'recover',
+  };
+}
+
+function getActions(log) {
+  const actions = [];
+  if (!log.trainingDone) {
+    actions.push({ title: 'Complete the main session', category: 'Training', text: 'Do the planned session first. Keep it clean and controlled rather than adding extras.' });
+  }
+  if (!log.businessAction) {
+    actions.push({ title: 'Move one goal forward', category: 'Progress', text: 'Spend 45 minutes on business, study or portfolio work before opening social media.' });
+  }
+  if (!log.morningLight) {
+    actions.push({ title: 'Get outside early', category: 'Sleep', text: 'Use morning light to anchor the day and support tonight’s sleep.' });
+  }
+  if (!log.windDown || log.stress > 5) {
+    actions.push({ title: 'Protect tonight', category: 'Recovery', text: 'No laptop late. Add a 10-minute wind-down and make sleep the win.' });
+  }
+  if (actions.length < 3) {
+    actions.push({ title: 'Keep the system tidy', category: 'Focus', text: 'Clear one small admin drag, then stop. Do not turn it into an inbox session.' });
+  }
+  return actions.slice(0, 3);
+}
+
+function ProgressBar({ value }) {
+  return (
+    <div className="bar"><span style={{ width: `${clamp(value)}%` }} /></div>
+  );
+}
+
+function Ring({ value }) {
+  const style = { '--value': `${value * 3.6}deg` };
+  return (
+    <div className="ring" style={style}>
+      <div className="ring-inner">
+        <strong>{value}</strong>
+        <span>score</span>
+      </div>
+    </div>
+  );
+}
+
+function Metric({ label, value, note }) {
+  return (
+    <div className="metric-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{note}</small>
+    </div>
+  );
+}
+
+function MiniChart({ data, field, label }) {
+  const max = Math.max(...data.map((d) => d[field]));
+  const points = data
+    .map((d, i) => {
+      const x = (i / (data.length - 1)) * 100;
+      const y = 100 - (d[field] / max) * 88 - 6;
+      return `${x},${y}`;
+    })
+    .join(' ');
+
+  return (
+    <div className="chart-card">
+      <div className="section-heading"><span>{label}</span><strong>7 day trend</strong></div>
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="line-chart">
+        <polyline points={points} fill="none" stroke="currentColor" strokeWidth="3" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <div className="chart-days">{data.map((d) => <span key={d.day}>{d.day}</span>)}</div>
+    </div>
+  );
+}
+
+function ToggleRow({ item, checked, onClick }) {
+  return (
+    <button className="toggle-row" onClick={onClick}>
+      <span className={checked ? 'tick on' : 'tick'}>{checked ? '✓' : ''}</span>
+      <span><strong>{item.label}</strong><small>{item.detail}</small></span>
+    </button>
+  );
+}
+
+function Slider({ label, value, min, max, step = 1, suffix = '', onChange }) {
+  return (
+    <label className="slider-row">
+      <span><strong>{label}</strong><em>{value}{suffix}</em></span>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+    </label>
+  );
+}
+
+function App() {
+  const [screen, setScreen] = useState('Today');
+  const [log, setLog] = useState(() => {
+    try {
+      const saved = localStorage.getItem('data-lab-log');
+      return saved ? { ...initialLog, ...JSON.parse(saved) } : initialLog;
+    } catch {
+      return initialLog;
+    }
+  });
+  const [done, setDone] = useState([false, false, false]);
+
+  useEffect(() => {
+    localStorage.setItem('data-lab-log', JSON.stringify(log));
+  }, [log]);
+
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+  }, []);
+
+  const score = useMemo(() => calculateScore(log), [log]);
+  const decision = useMemo(() => getDecision(score, log), [score, log]);
+  const actions = useMemo(() => getActions(log), [log]);
+  const completedActions = done.filter(Boolean).length;
+
+  const update = (key, value) => setLog((current) => ({ ...current, [key]: value }));
+  const toggle = (key) => setLog((current) => ({ ...current, [key]: !current[key] }));
+
+  const metrics = [
+    { label: 'Sleep', value: `${log.sleepHours}h`, note: log.sleepHours >= 7.5 ? 'Good' : 'Needs work' },
+    { label: 'Energy', value: `${log.energy}/10`, note: log.energy >= 7 ? 'Ready' : 'Manage' },
+    { label: 'Mood', value: `${log.mood}/10`, note: log.mood >= 7 ? 'Stable' : 'Watch' },
+    { label: 'Stress', value: `${log.stress}/10`, note: log.stress <= 5 ? 'Manageable' : 'High' },
+  ];
+
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <div>
+          <span className="eyebrow">Data Lab</span>
+          <h1>{screen}</h1>
+          <p>{today}</p>
+        </div>
+        <div className="score-pill"><strong>{score}</strong><span>live</span></div>
+      </header>
+
+      <main>
+        {screen === 'Today' && (
+          <>
+            <section className={`hero ${decision.tone}`}>
+              <div>
+                <span className="eyebrow">Decision</span>
+                <h2>{decision.title}</h2>
+                <p>{decision.detail}</p>
+              </div>
+              <Ring value={score} />
+              <div className="hero-grid">
+                <div><span>Actions</span><strong>{completedActions}/3</strong></div>
+                <div><span>Load</span><strong>{score > 65 ? 'OK' : 'Low'}</strong></div>
+                <div><span>Risk</span><strong>{log.stress > 6 ? 'High' : 'Low'}</strong></div>
+              </div>
+            </section>
+
+            <section className="metric-grid">
+              {metrics.map((m) => <Metric key={m.label} {...m} />)}
+            </section>
+
+            <section className="card">
+              <div className="section-heading"><span>Next best actions</span><strong>Do these first</strong></div>
+              <div className="action-list">
+                {actions.map((action, index) => (
+                  <button key={action.title} className="action" onClick={() => setDone((old) => old.map((v, i) => i === index ? !v : v))}>
+                    <span className={done[index] ? 'number done' : 'number'}>{done[index] ? '✓' : index + 1}</span>
+                    <span><b>{action.title}</b><small>{action.category}</small><p>{action.text}</p></span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          </>
+        )}
+
+        {screen === 'Log' && (
+          <>
+            <section className="card">
+              <div className="section-heading"><span>Daily input</span><strong>Log today</strong></div>
+              <div className="form-stack">
+                <Slider label="Sleep hours" value={log.sleepHours} min={4} max={10} step={0.1} suffix="h" onChange={(v) => update('sleepHours', v)} />
+                <Slider label="Energy" value={log.energy} min={1} max={10} onChange={(v) => update('energy', v)} />
+                <Slider label="Mood" value={log.mood} min={1} max={10} onChange={(v) => update('mood', v)} />
+                <Slider label="Stress" value={log.stress} min={1} max={10} onChange={(v) => update('stress', v)} />
+                <Slider label="Meditation" value={log.meditationMinutes} min={0} max={30} suffix=" min" onChange={(v) => update('meditationMinutes', v)} />
+                <Slider label="Mindful resets" value={log.mindfulResets} min={0} max={5} onChange={(v) => update('mindfulResets', v)} />
+              </div>
+            </section>
+
+            <section className="card">
+              <div className="section-heading"><span>Behaviour checks</span><strong>What moved the score?</strong></div>
+              <div className="toggle-stack">
+                {behaviourChecks.map((item) => <ToggleRow key={item.key} item={item} checked={log[item.key]} onClick={() => toggle(item.key)} />)}
+              </div>
+            </section>
+
+            <section className="card">
+              <div className="section-heading"><span>Notes</span><strong>One useful line</strong></div>
+              <textarea value={log.notes} onChange={(e) => update('notes', e.target.value)} placeholder="What mattered today?" />
+            </section>
+          </>
+        )}
+
+        {screen === 'Stats' && (
+          <>
+            <MiniChart data={weeklyData} field="progress" label="Progress" />
+            <MiniChart data={weeklyData} field="sleep" label="Sleep" />
+            <section className="metric-grid">
+              {metrics.map((m) => <Metric key={m.label} {...m} />)}
+            </section>
+            <section className="card">
+              <div className="section-heading"><span>Sleep protocol</span><strong>Behaviour score</strong></div>
+              {behaviourChecks.slice(1, 5).map((item) => (
+                <div key={item.key} className="protocol-row"><span>{item.label}</span><b>{log[item.key] ? 'Done' : 'Open'}</b></div>
+              ))}
+            </section>
+          </>
+        )}
+
+        {screen === 'Goals' && (
+          <section className="card">
+            <div className="section-heading"><span>Progress areas</span><strong>How you are doing</strong></div>
+            <div className="goal-stack">
+              {progressAreas.map((area) => {
+                const value = area.name === 'Sleep' ? Math.round((log.sleepHours / 8) * 100) : area.name === 'Business' && log.businessAction ? area.base + 12 : area.base;
+                return (
+                  <div className="goal" key={area.name}>
+                    <div><strong>{area.name}</strong><span>{area.status}</span></div>
+                    <b>{clamp(value)}%</b>
+                    <ProgressBar value={value} />
+                    <p>Next: {area.next}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {screen === 'Review' && (
+          <>
+            <section className="card review-card">
+              <div className="section-heading"><span>Weekly review</span><strong>What the app tells you</strong></div>
+              <p>You are progressing overall. The highest leverage behaviours are still sleep timing, morning light, focused work before social media, and protecting recovery after hard training.</p>
+              <p>Mindfulness is being used as a reset tool, not another performance target. Keep it small enough that you actually do it.</p>
+              <p>Bodyweight work should stay balanced: upper body, legs, core, mobility and proper rest.</p>
+            </section>
+            <section className="card">
+              <div className="section-heading"><span>Next week</span><strong>Priorities</strong></div>
+              <div className="priority-list">
+                <span>Protect two focused blocks for business or data work.</span>
+                <span>Keep the key training session, avoid adding junk volume.</span>
+                <span>Open Data Lab before social media each morning.</span>
+              </div>
+            </section>
+          </>
+        )}
+      </main>
+
+      <nav className="bottom-nav">
+        {['Today', 'Log', 'Stats', 'Goals', 'Review'].map((item) => (
+          <button key={item} onClick={() => setScreen(item)} className={screen === item ? 'active' : ''}>{item}</button>
+        ))}
+      </nav>
+    </div>
+  );
+}
+
+createRoot(document.getElementById('root')).render(<App />);
